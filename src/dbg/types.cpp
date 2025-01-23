@@ -42,13 +42,17 @@ bool TypeManager::AddType(const std::string & owner, const std::string & type, c
         return false;
     validPtr(type);
 
-    auto found_t = types.find(type);
-    if (found_t != types.end())
-        return addType(owner, found_t->second.primitive, name);
+    auto foundType = types.find(type);
+    if(foundType != types.end())
+        return addType(owner, foundType->second.primitive, name);
 
-    auto found_s = structs.find(type);
-    if (found_s != structs.end())
-        return addType(owner, Void, name, type);
+    auto foundStruct = structs.find(type);
+    if(foundStruct != structs.end())
+        return addType(owner, Typedef, name, type);
+
+    auto foundEnum = enums.find(type);
+    if(foundEnum != enums.end())
+        return addType(owner, Typedef, name, type);
 
     return false;
 }
@@ -169,6 +173,25 @@ bool TypeManager::AppendArg(const std::string & type, const std::string & name)
     return AddArg(lastfunction, type, name);
 }
 
+bool TypeManager::AddEnum(const std::string & owner, const std::string & name, const std::vector<std::pair<long long, std::string>> & fields, bool isBitfield, int size)
+{
+    if(owner.empty())
+        return false;
+
+    auto found_E = enums.find(name);
+    if(found_E != enums.end())
+        return false;
+
+    Enum num;
+    num.owner = owner;
+    num.name = name;
+    num.fields = fields;
+    num.isBitfield = isBitfield;
+    num.size = size;
+
+    return addEnum(num);
+}
+
 int TypeManager::Sizeof(const std::string & type) const
 {
     auto foundT = types.find(type);
@@ -194,7 +217,7 @@ bool TypeManager::Visit(const std::string & type, const std::string & name, Visi
     m.name = name;
     m.type = type;
     m.assignedType = type;
-    
+
     return visitMember(m, visitor);
 }
 
@@ -266,7 +289,7 @@ static void enumType(const std::unordered_map<K, V> & map, std::vector<TypeManag
     }
 }
 
-void TypeManager::Enum(std::vector<Summary> & typeList) const
+void TypeManager::Enumerate(std::vector<Summary> & typeList) const
 {
     typeList.clear();
     enumType(types, typeList);
@@ -321,7 +344,7 @@ static bool mapContains(const std::unordered_map<K, V> & map, const K & k)
 
 bool TypeManager::isDefined(const std::string & id) const
 {
-    return mapContains(types, id) || mapContains(structs, id);
+    return mapContains(enums, id) || mapContains(types, id) || mapContains(structs, id);
 }
 
 bool TypeManager::validPtr(const std::string & id)
@@ -352,6 +375,16 @@ bool TypeManager::addStructUnion(const StructUnion & s)
     return true;
 }
 
+bool TypeManager::addEnum(const Enum & e)
+{
+    lastenum = e.name;
+    if(e.owner.empty() || e.name.empty() || isDefined(e.name))
+        return false;
+    enums.insert({ e.name, e });
+
+    return true;
+}
+
 bool TypeManager::addType(const Type & t)
 {
     if(t.name.empty() || isDefined(t.name))
@@ -379,7 +412,7 @@ bool TypeManager::visitMember(const Member & root, Visitor & visitor) const
     if(foundT != types.end())
     {
         const auto & t = foundT->second;
-        if (t.primitive == Void) // check if struct type
+        if(t.primitive == Typedef)  // check if struct type
         {
             Member member = root;
             member.type = t.pointto;
@@ -399,13 +432,14 @@ bool TypeManager::visitMember(const Member & root, Visitor & visitor) const
             }
             return true;
         }
-        
+
         return visitor.visitType(root, t);
     }
+
     auto foundS = structs.find(root.type);
     if(foundS != structs.end())
     {
-        const auto& s = foundS->second;
+        const auto & s = foundS->second;
         if(!visitor.visitStructUnion(root, s))
             return false;
         for(const auto & child : s.members)
@@ -425,6 +459,14 @@ bool TypeManager::visitMember(const Member & root, Visitor & visitor) const
         }
         return visitor.visitBack(root);
     }
+
+    auto fondE = enums.find(root.type);
+    if(fondE != enums.end())
+    {
+        const auto & e = fondE->second;
+        return visitor.visitEnum(root, e);
+    }
+
     return false;
 }
 
@@ -503,7 +545,7 @@ bool RemoveType(const std::string & type)
 void EnumTypes(std::vector<Types::TypeManager::Summary> & typeList)
 {
     SHARED_ACQUIRE(LockTypeManager);
-    return typeManager.Enum(typeList);
+    return typeManager.Enumerate(typeList);
 }
 
 int json_default_int(const JSON object, const char* key, int defaultVal)
@@ -617,6 +659,49 @@ static void loadFunctions(const JSON froot, std::vector<Function> & functions)
     }
 }
 
+static void loadEnums(const JSON suroot, std::vector<Enum> & enums)
+{
+    if(!suroot)
+        return;
+
+    size_t i;
+    JSON vali;
+    Enum curEn;
+
+    json_array_foreach(suroot, i, vali)
+    {
+        auto suname = json_string_value(json_object_get(vali, "name"));
+        auto size = json_integer_value(json_object_get(vali, "size"));
+        auto isBitField = json_boolean_value(json_object_get(vali, "isBitField"));
+        if(!suname || !*suname || !size)
+            continue;
+
+        curEn.name = suname;
+        curEn.isBitfield = isBitField;
+        curEn.size = size;
+        curEn.fields.clear();
+
+        auto fields = json_object_get(vali, "members");
+        size_t j;
+        JSON valj;
+
+        std::pair<long long, std::string> curr_field;
+        json_array_foreach(fields, j, valj)
+        {
+            auto value = json_integer_value(json_object_get(valj, "value"));
+            auto name = json_string_value(json_object_get(valj, "name"));
+            if(!name || !*name)
+                continue;
+
+            curr_field.first = value;
+            curr_field.second = name;
+            curEn.fields.push_back(curr_field);
+        }
+
+        enums.push_back(curEn);
+    }
+}
+
 void LoadModel(const std::string & owner, Model & model)
 {
     //Add all base struct/union types first to avoid errors later
@@ -628,6 +713,20 @@ void LoadModel(const std::string & owner, Model & model)
             //TODO properly handle errors
             dprintf(QT_TRANSLATE_NOOP("DBG", "Failed to add %s %s;\n"), su.isunion ? "union" : "struct", su.name.c_str());
             su.name.clear(); //signal error
+        }
+    }
+
+    //Add enums
+    for(auto & su : model.enums)
+    {
+        if(su.name.empty())  //skip error-signalled structs/unions
+            continue;
+
+        auto success = typeManager.AddEnum(owner, su.name, su.fields, su.isBitfield, su.size);
+        if(!success)
+        {
+            //TODO properly handle errors
+            dprintf(QT_TRANSLATE_NOOP("DBG", "Failed to add enum %s;\n"), su.name.c_str());
         }
     }
 
@@ -702,6 +801,8 @@ bool LoadTypesJson(const std::string & json, const std::string & owner)
         loadStructUnions(json_object_get(root, ArchValue("unions32", "unions64")), true, model.structUnions);
         loadFunctions(json_object_get(root, "functions"), model.functions);
         loadFunctions(json_object_get(root, ArchValue("functions32", "functions64")), model.functions);
+        loadEnums(json_object_get(root, "enums"), model.enums);
+        loadEnums(json_object_get(root, ArchValue("enums32", "enums64")), model.enums);
 
         LoadModel(owner, model);
 

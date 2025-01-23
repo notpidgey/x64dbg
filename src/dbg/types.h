@@ -8,7 +8,8 @@ namespace Types
 {
     enum Primitive
     {
-        Void,   // struct/union
+        Typedef,     // struct/union/enum
+
         Int8,
         Uint8,
         Int16,
@@ -71,6 +72,16 @@ namespace Types
         std::vector<Member> args; //Function arguments
     };
 
+    struct Enum
+    {
+        std::string owner;
+        std::string name;
+        std::vector<std::pair<long long, std::string>> fields;
+
+        bool isBitfield;
+        int size;
+    };
+
     struct TypeManager
     {
         struct Visitor
@@ -80,6 +91,7 @@ namespace Types
             virtual bool visitStructUnion(const Member & member, const StructUnion & type) = 0;
             virtual bool visitArray(const Member & member) = 0;
             virtual bool visitPtr(const Member & member, const Type & type) = 0;
+            virtual bool visitEnum(const Member & member, const Enum & type) = 0;
             virtual bool visitBack(const Member & member) = 0;
         };
 
@@ -100,11 +112,13 @@ namespace Types
         bool AddFunction(const std::string & owner, const std::string & name, const std::string & rettype, CallingConvention callconv = Cdecl, bool noreturn = false);
         bool AddArg(const std::string & function, const std::string & type, const std::string & name);
         bool AppendArg(const std::string & type, const std::string & name);
+        bool AddEnum(const std::string & owner, const std::string & name, const std::vector<std::pair<long long, std::string>> & fields, bool is_bitfield, int size);
+
         int Sizeof(const std::string & type) const;
         bool Visit(const std::string & type, const std::string & name, Visitor & visitor) const;
         void Clear(const std::string & owner = "");
         bool RemoveType(const std::string & type);
-        void Enum(std::vector<Summary> & typeList) const;
+        void Enumerate(std::vector<Summary> & typeList) const;
         std::string StructUnionPtrType(const std::string & pointto) const;
 
     private:
@@ -112,12 +126,15 @@ namespace Types
         std::unordered_map<std::string, Type> types;
         std::unordered_map<std::string, StructUnion> structs;
         std::unordered_map<std::string, Function> functions;
+        std::unordered_map<std::string, Enum> enums;
         std::string laststruct;
+        std::string lastenum;
         std::string lastfunction;
 
         bool isDefined(const std::string & id) const;
         bool validPtr(const std::string & id);
         bool addStructUnion(const StructUnion & s);
+        bool addEnum(const Enum & e);
         bool addType(const std::string & owner, Primitive primitive, const std::string & name, const std::string & pointto = "");
         bool addType(const Type & t);
         bool visitMember(const Member & root, Visitor & visitor) const;
@@ -128,6 +145,7 @@ namespace Types
         std::vector<Member> types;
         std::vector<StructUnion> structUnions;
         std::vector<Function> functions;
+        std::vector<Enum> enums;
     };
 };
 

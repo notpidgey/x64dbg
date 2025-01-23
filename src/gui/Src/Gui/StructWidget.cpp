@@ -217,6 +217,7 @@ void StructWidget::setupContextMenu()
     });
     mMenuBuilder->addAction(makeAction(DIcon("visitstruct"), tr("Display type"), SLOT(visitSlot())));
     mMenuBuilder->addAction(makeAction(DIcon("database-import"), tr("Load JSON"), SLOT(loadJsonSlot())));
+    mMenuBuilder->addAction(makeAction(DIcon("database-import"), tr("Load Windows Types"), SLOT(loadWindowsTypes())));
     mMenuBuilder->addAction(makeAction(DIcon("source"), tr("Parse header"), SLOT(parseFileSlot())));
     mMenuBuilder->addAction(makeAction(DIcon("removestruct"), tr("Remove"), SLOT(removeSlot())), [this](QMenu*)
     {
@@ -382,6 +383,12 @@ void StructWidget::visitSlot()
         addr = DbgValFromString(mGotoDialog->expressionText.toUtf8().constData());
     DbgCmdExec(QString("VisitType %1, %2, 2").arg(selection, ToPtrString(addr)));
     // TODO: show a proper error message on failure
+}
+
+
+void StructWidget::loadWindowsTypes()
+{
+    DbgCmdExec(QString("LoadTypes \"%1\"").arg("windows_types.json"));
 }
 
 void StructWidget::loadJsonSlot()

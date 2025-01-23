@@ -353,7 +353,7 @@ struct PrintVisitor : TypeManager::Visitor
                 std::reverse(data(), data() + data.size());
             switch(Primitive(type->id))
             {
-            case Void:
+            case Typedef:
                 valueStr.clear();
                 break;
             case Int8:
@@ -448,6 +448,62 @@ struct PrintVisitor : TypeManager::Visitor
         return true;
     }
 
+    static bool cbPrintEnum(const TYPEDESCRIPTOR* type, char* dest, size_t* destCount)
+    {
+        Enum* enum_data = (Enum*)type->userdata;
+
+        String valueStr = "";
+
+        uint64_t data_value = 0;
+        MemRead(type->addr, &data_value, type->size);
+
+        bool found_field = false;
+        for(auto & field : enum_data->fields)
+        {
+            auto value = field.first;
+            auto name = field.second;
+
+            if(enum_data->isBitfield)
+            {
+                if(data_value & value || (value == 0 && data_value == 0))
+                {
+                    data_value &= ~value;
+
+                    if(!valueStr.empty())
+                        valueStr += " | ";
+
+                    valueStr += name;
+                    found_field = true;
+                }
+            }
+            else
+            {
+                if(data_value == value)
+                {
+                    valueStr += name;
+                    data_value = 0;
+
+                    found_field = true;
+                    break;
+                }
+            }
+        }
+
+        if(data_value || !found_field)
+        {
+            // still have missing value
+            // we can make use of | at the end of the string by appending the error
+            if(!valueStr.empty())
+                valueStr += " | ";
+
+            // SOME_ENUM | 123123
+            valueStr += "0x" + StringUtils::ToHex(data_value);
+        }
+
+        strcpy_s(dest, *destCount, valueStr.c_str());
+        return true;
+    }
+
     bool visitType(const Member & member, const Type & type) override
     {
         if(!mParents.empty() && parent().type == Parent::Union)
@@ -472,18 +528,19 @@ struct PrintVisitor : TypeManager::Visitor
             }
         }
 
-        std::string path;
-        for(size_t i = 0; i < mPath.size(); i++)
-        {
-            if(ptype == Parent::Array && i + 1 == mPath.size())
-                break;
-            path.append(mPath[i]);
-        }
-        path.append(member.name);
-
         auto ptr = mAddr + mOffset;
         if(MemIsValidReadPtr(ptr))
         {
+            std::string path;
+            for(size_t i = 0; i < mPath.size(); i++)
+            {
+                if(ptype == Parent::Array && i + 1 == mPath.size())
+                    break;
+                path.append(mPath[i]);
+            }
+
+            path.append(member.name);
+
             if(!LabelGet(ptr, nullptr) && (!mParents.empty() && (parent().index == 1 || ptype != Parent::Array)))
                 LabelSet(ptr, path.c_str(), false, true);
         }
@@ -517,7 +574,7 @@ struct PrintVisitor : TypeManager::Visitor
         td.name = tname.c_str();
         td.addr = mAddr;
         td.offset = mOffset;
-        td.id = Void;
+        td.id = Typedef;
         td.size = type.size;
         td.callback = nullptr;
         td.userdata = nullptr;
@@ -541,7 +598,7 @@ struct PrintVisitor : TypeManager::Visitor
         td.name = tname.c_str();
         td.addr = mAddr;
         td.offset = mOffset;
-        td.id = Void;
+        td.id = Typedef;
         td.size = member.arrsize * SizeofType(member.type);
         td.callback = nullptr;
         td.userdata = nullptr;
@@ -575,6 +632,29 @@ struct PrintVisitor : TypeManager::Visitor
         mAddr = value;
         mPtrDepth++;
         return res;
+    }
+
+    bool visitEnum(const Member & member, const Enum & num) override
+    {
+        if(!mParents.empty() && parent().type == Parent::Union)
+            mOffset = parent().offset;
+
+        String tname = StringUtils::sprintf("%s %s", member.assignedType.c_str(), member.name.c_str());
+
+        TYPEDESCRIPTOR td;
+        td.expanded = false;
+        td.reverse = false;
+        td.name = tname.c_str();
+        td.addr = mAddr;
+        td.offset = mOffset;
+        td.id = Typedef;
+        td.size = num.size;
+        td.callback = cbPrintEnum;
+        td.userdata = (void*)&num;
+        mNode = GuiTypeAddNode(mParents.empty() ? nullptr : parent().node, &td);
+        mOffset += num.size;
+
+        return true;
     }
 
     bool visitBack(const Member & member) override

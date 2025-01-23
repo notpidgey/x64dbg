@@ -61,6 +61,7 @@ private slots:
     void clearSlot();
     void removeSlot();
     void visitSlot();
+    void loadWindowsTypes();
     void loadJsonSlot();
     void parseFileSlot();
     void changeAddrSlot();
