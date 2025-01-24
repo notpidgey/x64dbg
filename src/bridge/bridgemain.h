@@ -1337,9 +1337,11 @@ typedef struct _TYPEDESCRIPTOR
     bool reverse; //big endian?
     const char* name; //type name (int b)
     duint addr; //virtual address
-    duint offset; //offset to addr for the actual location
+    duint offset; // byte offset to addr for the actual location
+    duint bitoffset; // bit offset from byte offset
     int id; //type id
     int size; //sizeof(type)
+    bool isbitsize; // indicates that size is in bit count
     TYPETOSTRING callback; //convert to string
     void* userdata; //user data
 } TYPEDESCRIPTOR;

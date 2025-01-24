@@ -43,6 +43,8 @@ namespace Types
         std::string type; //Type.name
         int arrsize = 0; //Number of elements if Member is an array
         int offset = -1; //Member offset (only stored for reference)
+        int bitOffset = -1;
+        int bitSize = -1;
     };
 
     struct StructUnion
@@ -107,7 +109,8 @@ namespace Types
         bool AddType(const std::string & owner, const std::string & type, const std::string & name);
         bool AddStruct(const std::string & owner, const std::string & name);
         bool AddUnion(const std::string & owner, const std::string & name);
-        bool AddMember(const std::string & parent, const std::string & type, const std::string & name, int arrsize = 0, int offset = -1);
+        bool AddMember(const std::string & parent, const std::string & type, const std::string & name, int arrsize = 0, int offset = -1, int
+                       bitOffset = -1, int bitSize = 0);
         bool AppendMember(const std::string & type, const std::string & name, int arrsize = 0, int offset = -1);
         bool AddFunction(const std::string & owner, const std::string & name, const std::string & rettype, CallingConvention callconv = Cdecl, bool noreturn = false);
         bool AddArg(const std::string & function, const std::string & type, const std::string & name);

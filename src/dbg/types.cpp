@@ -74,12 +74,13 @@ bool TypeManager::AddUnion(const std::string & owner, const std::string & name)
     return addStructUnion(u);
 }
 
-bool TypeManager::AddMember(const std::string & parent, const std::string & type, const std::string & name, int arrsize, int offset)
+bool TypeManager::AddMember(const std::string & parent, const std::string & type, const std::string & name, int arrsize, int offset,
+                            int bitOffset, int bitSize)
 {
     if(!isDefined(type) && !validPtr(type))
         return false;
     auto found = structs.find(parent);
-    if(arrsize < 0 || found == structs.end() || !isDefined(type) || name.empty() || type.empty() || type == parent)
+    if(arrsize < 0 || found == structs.end() || !isDefined(type) || name.empty() || type.empty() || type == parent || (bitOffset != -1 && bitSize == 0))
         return false;
     auto & s = found->second;
 
@@ -97,6 +98,8 @@ bool TypeManager::AddMember(const std::string & parent, const std::string & type
     m.type = type;
     m.assignedType = type;
     m.offset = offset;
+    m.bitOffset = bitOffset;
+    m.bitSize = bitSize;
 
     if(offset >= 0) //user-defined offset
     {
@@ -424,12 +427,14 @@ bool TypeManager::visitMember(const Member & root, Visitor & visitor) const
         {
             if(!isDefined(t.pointto))
                 return false;
+
             if(visitor.visitPtr(root, t)) //allow the visitor to bail out
             {
                 if(!Visit(t.pointto, "*" + root.name, visitor))
                     return false;
                 return visitor.visitBack(root);
             }
+
             return true;
         }
 
@@ -603,8 +608,12 @@ static void loadStructUnions(const JSON suroot, bool isunion, std::vector<Struct
                 continue;
             curMember.type = type;
             curMember.name = name;
+
             curMember.arrsize = json_default_int(valj, "arrsize", 0);
             curMember.offset = json_default_int(valj, "offset", -1);
+            curMember.bitOffset = json_default_int(valj, "bitOffset", -1);
+            curMember.bitSize = json_default_int(valj, "bitSize", 0);
+
             curSu.members.push_back(curMember);
         }
         structUnions.push_back(curSu);
@@ -760,7 +769,7 @@ void LoadModel(const std::string & owner, Model & model)
             continue;
         for(auto & member : su.members)
         {
-            auto success = typeManager.AddMember(su.name, member.type, member.name, member.arrsize, member.offset);
+            auto success = typeManager.AddMember(su.name, member.type, member.name, member.arrsize, member.offset, member.bitOffset, member.bitSize);
             if(!success)
             {
                 //TODO properly handle errors
