@@ -33,7 +33,7 @@ namespace Types
         std::string name; //Type identifier.
         std::string pointto; //Type identifier of *Type
         Primitive primitive; //Primitive type.  Void is Struct typedef
-        int size = 0; //Size in bytes.
+        int sizeFUCK = 0; //Size in bytes.
     };
 
     struct Member
@@ -42,9 +42,8 @@ namespace Types
         std::string name; //Member identifier
         std::string type; //Type.name
         int arrsize = 0; //Number of elements if Member is an array
-        int offset = -1; //Member offset (only stored for reference)
-        int bitOffset = -1;
-        int bitSize = -1;
+        int offsetFUCK = -1; //Member offset (only stored for reference)
+        int bitfieldSize = -1;
     };
 
     struct StructUnion
@@ -53,7 +52,7 @@ namespace Types
         std::string name; //StructUnion identifier
         std::vector<Member> members; //StructUnion members
         bool isunion = false; //Is this a union?
-        int size = 0;
+        int sizeFUCK = 0;
     };
 
     enum CallingConvention
@@ -81,7 +80,7 @@ namespace Types
         std::vector<std::pair<long long, std::string>> fields;
 
         bool isBitfield;
-        int size;
+        int sizeFUCK;
     };
 
     struct TypeManager
@@ -109,8 +108,7 @@ namespace Types
         bool AddType(const std::string & owner, const std::string & type, const std::string & name);
         bool AddStruct(const std::string & owner, const std::string & name);
         bool AddUnion(const std::string & owner, const std::string & name);
-        bool AddMember(const std::string & parent, const std::string & type, const std::string & name, int arrsize = 0, int offset = -1, int
-                       bitOffset = -1, int bitSize = 0);
+        bool AddMember(const std::string & parent, const std::string & type, const std::string & name, int arrsize = 0, int offset = -1, int bitSize = 0);
         bool AppendMember(const std::string & type, const std::string & name, int arrsize = 0, int offset = -1);
         bool AddFunction(const std::string & owner, const std::string & name, const std::string & rettype, CallingConvention callconv = Cdecl, bool noreturn = false);
         bool AddArg(const std::string & function, const std::string & type, const std::string & name);

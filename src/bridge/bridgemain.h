@@ -1342,9 +1342,6 @@ typedef struct _TYPEDESCRIPTOR
     int size; //sizeof(type)
     TYPETOSTRING callback; //convert to string
     void* userdata; //user data
-
-    duint bitoffset; // bit offset from byte offset
-    bool isbitsize; // indicates that size is in bit count
 } TYPEDESCRIPTOR;
 
 //GUI functions

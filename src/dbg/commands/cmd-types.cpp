@@ -347,31 +347,25 @@ struct PrintVisitor : TypeManager::Visitor
         }
         String valueStr;
 
-        auto target_size = type->size;
-        if(type->isbitsize)
-            target_size = (target_size + 7) / 8 + 1; // round up to next multiple byte of 8 and add 1
 
-        Memory<unsigned char*> data(target_size);
-        if(MemRead(type->addr + type->offset, data(), data.size()))
+        std::size_t firstByte = type->offset / 8;
+        std::size_t lastByte = (type->offset + type->size - 1) / 8;
+        std::size_t readByteCount = lastByte - firstByte + 1;
+
+        Memory<unsigned char*> data(readByteCount);
+        if(MemRead(type->addr + firstByte, data(), readByteCount))
         {
             if(type->reverse)
                 std::reverse(data(), data() + data.size());
 
-            uint64_t extractedValue = 0;
-            if(type->isbitsize)
-            {
-                size_t startByte = type->bitoffset / 8;
-                size_t startBit = type->bitoffset % 8;
-                size_t bitCount = type->size;
+            uint64_t val = 0;
+            for(std::size_t i = 0; i < readByteCount; ++i)
+                val |= (static_cast<uint64_t>(data()[i]) << (8 * i));
 
-                for(auto i = 0; i < ((bitCount + 7) / 8); ++i)
-                    extractedValue |= (uint64_t)data()[startByte + i] << (i * 8);
+            val >>= static_cast<unsigned>(type->offset % 8);
+            val &= (1ULL << type->size) - 1;
 
-                extractedValue >>= startBit;
-                extractedValue &= (1ULL << bitCount) - 1;
-
-                data()[0] = static_cast<unsigned char>(extractedValue & 0xFF);
-            }
+            memcpy(data(), &val, sizeof uint64_t);
 
             switch(Primitive(type->id))
             {
@@ -539,8 +533,8 @@ struct PrintVisitor : TypeManager::Visitor
         }
         else
         {
-            if(member.bitSize != -1)
-                tname = StringUtils::sprintf("%s %s : %i", type.name.c_str(), member.name.c_str(), member.bitSize);
+            if(member.bitfieldSize != -1)
+                tname = StringUtils::sprintf("%s %s : %i", type.name.c_str(), member.name.c_str(), member.bitfieldSize);
             else
                 tname = StringUtils::sprintf("%s %s", type.name.c_str(), member.name.c_str());
 
@@ -576,17 +570,14 @@ struct PrintVisitor : TypeManager::Visitor
         td.name = tname.c_str();
         td.addr = mAddr;
         td.offset = mOffset;
-        td.bitoffset = member.bitOffset;
         td.id = type.primitive;
-        td.size = member.bitOffset != -1 ? member.bitSize : type.size;
-        td.isbitsize = member.bitOffset != -1;
+        td.size = member.bitfieldSize != -1 ? member.bitfieldSize : type.sizeFUCK;
+        if(td.size <= 0)
+            __debugbreak();
         td.callback = cbPrintPrimitive;
         td.userdata = nullptr;
         mNode = GuiTypeAddNode(mParents.empty() ? nullptr : parent().node, &td);
-        mOffset += td.isbitsize ? member.bitSize / 8 : type.size;
-
-        if(td.isbitsize)
-            __debugbreak();
+        mOffset += td.size;
 
         return true;
     }
@@ -604,10 +595,8 @@ struct PrintVisitor : TypeManager::Visitor
         td.name = tname.c_str();
         td.addr = mAddr;
         td.offset = mOffset;
-        td.bitoffset = 0;
         td.id = Typedef;
-        td.size = type.size;
-        td.isbitsize = false;
+        td.size = type.sizeFUCK;
         td.callback = nullptr;
         td.userdata = nullptr;
         auto node = GuiTypeAddNode(mParents.empty() ? nullptr : parent().node, &td);
@@ -630,10 +619,8 @@ struct PrintVisitor : TypeManager::Visitor
         td.name = tname.c_str();
         td.addr = mAddr;
         td.offset = mOffset;
-        td.bitoffset = 0;
         td.id = Typedef;
-        td.size = member.arrsize * SizeofType(member.type);
-        td.isbitsize = false;
+        td.size = member.arrsize * SizeofType(member.type) * 8;
         td.callback = nullptr;
         td.userdata = nullptr;
         auto node = GuiTypeAddNode(mParents.empty() ? nullptr : parent().node, &td);
@@ -661,7 +648,7 @@ struct PrintVisitor : TypeManager::Visitor
         parent().offset = mOffset;
         parent().addr = mAddr;
         parent().node = mNode;
-        parent().size = type.size;
+        parent().size = type.sizeFUCK;
         mOffset = 0;
         mAddr = value;
         mPtrDepth++;
@@ -681,14 +668,12 @@ struct PrintVisitor : TypeManager::Visitor
         td.name = tname.c_str();
         td.addr = mAddr;
         td.offset = mOffset;
-        td.bitoffset = 0;
         td.id = Typedef;
-        td.size = num.size;
-        td.isbitsize = false;
+        td.size = num.sizeFUCK;
         td.callback = cbPrintEnum;
         td.userdata = (void*)&num;
         mNode = GuiTypeAddNode(mParents.empty() ? nullptr : parent().node, &td);
-        mOffset += num.size;
+        mOffset += num.sizeFUCK;
 
         return true;
     }

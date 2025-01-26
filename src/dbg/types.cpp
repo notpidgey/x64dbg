@@ -74,13 +74,12 @@ bool TypeManager::AddUnion(const std::string & owner, const std::string & name)
     return addStructUnion(u);
 }
 
-bool TypeManager::AddMember(const std::string & parent, const std::string & type, const std::string & name, int arrsize, int offset,
-                            int bitOffset, int bitSize)
+bool TypeManager::AddMember(const std::string & parent, const std::string & type, const std::string & name, int arrsize, int offset, int bitSize)
 {
     if(!isDefined(type) && !validPtr(type))
         return false;
     auto found = structs.find(parent);
-    if(arrsize < 0 || found == structs.end() || !isDefined(type) || name.empty() || type.empty() || type == parent || (bitOffset != -1 && bitSize == 0))
+    if(arrsize < 0 || found == structs.end() || !isDefined(type) || name.empty() || type.empty() || type == parent)
         return false;
     auto & s = found->second;
 
@@ -88,33 +87,84 @@ bool TypeManager::AddMember(const std::string & parent, const std::string & type
         if(member.name == name)
             return false;
 
+    if(bitSize != -1 && arrsize)
+        return false;
+
     auto typeSize = Sizeof(type);
     if(arrsize)
         typeSize *= arrsize;
+    else if(bitSize != -1 &&  typeSize * 8 < bitSize)
+        return false;
+
+    if(bitSize < -1)
+        __debugbreak();
 
     Member m;
     m.name = name;
     m.arrsize = arrsize;
     m.type = type;
     m.assignedType = type;
-    m.offset = offset;
-    m.bitOffset = bitOffset;
-    m.bitSize = bitSize;
+    m.offsetFUCK = offset;
+    m.bitfieldSize = bitSize;
 
-    if(offset >= 0) //user-defined offset
+    if(offset >= 0)  //user-defined offset
     {
-        if(offset < s.size)
-            return false;
-        if(offset > s.size)
+        if(!s.members.empty())
         {
-            Member pad;
-            pad.type = "char";
-            pad.arrsize = offset - s.size;
-            char padname[32] = "";
-            sprintf_s(padname, "padding%d", pad.arrsize);
-            pad.name = padname;
-            s.members.push_back(pad);
-            s.size += pad.arrsize;
+            auto last = s.members.back();
+            if(s.sizeFUCK < offset)
+                return false;
+
+            auto padding = offset - s.sizeFUCK;
+            if(padding < 0)
+                __debugbreak();
+
+            if(padding)
+            {
+                auto create_byte_pad = [&](int byte_count) -> void
+                {
+                    Member pad;
+                    pad.type = "char";
+                    pad.arrsize = byte_count;
+                    char padname[32] = "";
+                    sprintf_s(padname, "padding%d", pad.arrsize);
+                    pad.name = padname;
+                    s.members.push_back(pad);
+                    s.sizeFUCK += byte_count * 8;
+                };
+
+                auto create_bit_pad = [&](int bit_count) -> void
+                {
+                    // need bit gap
+                    Member pad;
+                    pad.type = "long long";
+                    pad.bitfieldSize = bit_count;
+                    char padname[32] = "";
+                    sprintf_s(padname, "bpadding%d", bit_count);
+                    pad.name = padname;
+                    s.members.push_back(pad);
+                    s.sizeFUCK += bit_count;
+                };
+
+                if(padding % 8 != 0)
+                {
+                    if(padding > 64)
+                    {
+                        // too large to create a bit padding
+                        auto byteCount = padding / 8;
+                        create_byte_pad(byteCount);
+
+                        padding -= byteCount * 8;
+                    }
+
+                    create_bit_pad(padding);
+                }
+                else
+                {
+                    // byte gap is fine
+                    create_byte_pad(padding / 8);
+                }
+            }
         }
     }
 
@@ -122,13 +172,14 @@ bool TypeManager::AddMember(const std::string & parent, const std::string & type
 
     if(s.isunion)
     {
-        if(typeSize > s.size)
-            s.size = typeSize;
+        if(typeSize > s.sizeFUCK)
+            s.sizeFUCK = typeSize * 8;
     }
     else
     {
-        s.size += typeSize;
+        s.sizeFUCK += m.bitfieldSize != -1 ? m.bitfieldSize : typeSize * 8;
     }
+
     return true;
 }
 
@@ -190,7 +241,7 @@ bool TypeManager::AddEnum(const std::string & owner, const std::string & name, c
     num.name = name;
     num.fields = fields;
     num.isBitfield = isBitfield;
-    num.size = size;
+    num.sizeFUCK = size;
 
     return addEnum(num);
 }
@@ -199,18 +250,22 @@ int TypeManager::Sizeof(const std::string & type) const
 {
     auto foundT = types.find(type);
     if(foundT != types.end())
-        return foundT->second.size;
+        return (foundT->second.sizeFUCK + 7) / 8;
+
     auto foundS = structs.find(type);
     if(foundS != structs.end())
-        return foundS->second.size;
+        return (foundS->second.sizeFUCK + 7) / 8;
+
     auto foundF = functions.find(type);
     if(foundF != functions.end())
     {
         const auto foundP = primitivesizes.find(Pointer);
         if(foundP != primitivesizes.end())
             return foundP->second;
+
         return sizeof(void*);
     }
+
     return 0;
 }
 
@@ -404,7 +459,7 @@ bool TypeManager::addType(const std::string & owner, Primitive primitive, const 
     t.owner = owner;
     t.name = name;
     t.primitive = primitive;
-    t.size = primitivesizes[primitive];
+    t.sizeFUCK = primitivesizes[primitive] * 8;
     t.pointto = pointto;
     return addType(t);
 }
@@ -610,9 +665,19 @@ static void loadStructUnions(const JSON suroot, bool isunion, std::vector<Struct
             curMember.name = name;
 
             curMember.arrsize = json_default_int(valj, "arrsize", 0);
-            curMember.offset = json_default_int(valj, "offset", -1);
-            curMember.bitOffset = json_default_int(valj, "bitOffset", -1);
-            curMember.bitSize = json_default_int(valj, "bitSize", 0);
+            curMember.bitfieldSize = json_default_int(valj, "bitSize", -1);
+
+            curMember.offsetFUCK = json_default_int(valj, "offset", -1);
+            if(curMember.offsetFUCK != -1)
+            {
+                curMember.offsetFUCK *= 8;
+
+                auto bitOffset = json_default_int(valj, "bitOffset", -1);
+                if(bitOffset != -1)
+                {
+                    curMember.offsetFUCK += bitOffset;
+                }
+            }
 
             curSu.members.push_back(curMember);
         }
@@ -687,7 +752,7 @@ static void loadEnums(const JSON suroot, std::vector<Enum> & enums)
 
         curEn.name = suname;
         curEn.isBitfield = isBitField;
-        curEn.size = size;
+        curEn.sizeFUCK = size;
         curEn.fields.clear();
 
         auto fields = json_object_get(vali, "members");
@@ -731,7 +796,7 @@ void LoadModel(const std::string & owner, Model & model)
         if(su.name.empty())  //skip error-signalled structs/unions
             continue;
 
-        auto success = typeManager.AddEnum(owner, su.name, su.fields, su.isBitfield, su.size);
+        auto success = typeManager.AddEnum(owner, su.name, su.fields, su.isBitfield, su.sizeFUCK);
         if(!success)
         {
             //TODO properly handle errors
@@ -767,9 +832,13 @@ void LoadModel(const std::string & owner, Model & model)
     {
         if(su.name.empty()) //skip error-signalled structs/unions
             continue;
+
+        if(su.name == "_LDT_ENTRY")
+            __debugbreak();
+
         for(auto & member : su.members)
         {
-            auto success = typeManager.AddMember(su.name, member.type, member.name, member.arrsize, member.offset, member.bitOffset, member.bitSize);
+            auto success = typeManager.AddMember(su.name, member.type, member.name, member.arrsize, member.offsetFUCK, member.bitfieldSize);
             if(!success)
             {
                 //TODO properly handle errors
