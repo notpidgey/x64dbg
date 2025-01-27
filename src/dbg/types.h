@@ -33,7 +33,6 @@ namespace Types
         std::string name; //Type identifier.
         std::string pointto; //Type identifier of *Type
         Primitive primitive; //Primitive type.  Void is Struct typedef
-        int sizeFUCK = 0; //Size in bytes.
     };
 
     struct Member
@@ -116,6 +115,7 @@ namespace Types
         bool AddEnum(const std::string & owner, const std::string & name, const std::vector<std::pair<long long, std::string>> & fields, bool is_bitfield, int size);
 
         int Sizeof(const std::string & type) const;
+        int Sizeof(const Primitive type) const;
         bool Visit(const std::string & type, const std::string & name, Visitor & visitor) const;
         void Clear(const std::string & owner = "");
         bool RemoveType(const std::string & type);
@@ -159,6 +159,7 @@ bool AddFunction(const std::string & owner, const std::string & name, const std:
 bool AddArg(const std::string & function, const std::string & type, const std::string & name);
 bool AppendArg(const std::string & type, const std::string & name);
 int SizeofType(const std::string & type);
+int SizeofType(const Types::Primitive type);
 bool VisitType(const std::string & type, const std::string & name, Types::TypeManager::Visitor & visitor);
 void ClearTypes(const std::string & owner = "");
 bool RemoveType(const std::string & type);

@@ -44,8 +44,12 @@ bool TypeManager::AddType(const std::string & owner, const std::string & type, c
 
     auto foundType = types.find(type);
     if(foundType != types.end())
-        return addType(owner, foundType->second.primitive, name);
-
+    {
+        if(foundType->second.primitive == Typedef)
+            addType(owner, foundType->second.primitive, name, type);
+        else
+            addType(owner, foundType->second.primitive, name, "");
+    }
     auto foundStruct = structs.find(type);
     if(foundStruct != structs.end())
         return addType(owner, Typedef, name, type);
@@ -96,6 +100,9 @@ bool TypeManager::AddMember(const std::string & parent, const std::string & type
     else if(bitSize != -1 &&  typeSize * 8 < bitSize)
         return false;
 
+    if(typeSize == 0)
+        __debugbreak();
+
     if(bitSize < -1)
         __debugbreak();
 
@@ -112,7 +119,7 @@ bool TypeManager::AddMember(const std::string & parent, const std::string & type
         if(!s.members.empty())
         {
             auto last = s.members.back();
-            if(s.sizeFUCK < offset)
+            if(offset < s.sizeFUCK)
                 return false;
 
             auto padding = offset - s.sizeFUCK;
@@ -172,7 +179,7 @@ bool TypeManager::AddMember(const std::string & parent, const std::string & type
 
     if(s.isunion)
     {
-        if(typeSize > s.sizeFUCK)
+        if(typeSize * 8 > s.sizeFUCK)
             s.sizeFUCK = typeSize * 8;
     }
     else
@@ -246,11 +253,26 @@ bool TypeManager::AddEnum(const std::string & owner, const std::string & name, c
     return addEnum(num);
 }
 
+int TypeManager::Sizeof(const Primitive type) const
+{
+    if(type == Typedef)
+        __debugbreak();
+
+    return primitivesizes.at(type);
+}
+
 int TypeManager::Sizeof(const std::string & type) const
 {
     auto foundT = types.find(type);
     if(foundT != types.end())
-        return (foundT->second.sizeFUCK + 7) / 8;
+    {
+        if(foundT->second.primitive == Typedef)
+        {
+            return Sizeof(foundT->second.pointto);
+        }
+
+        return Sizeof(foundT->second.primitive);
+    }
 
     auto foundS = structs.find(type);
     if(foundS != structs.end())
@@ -265,6 +287,10 @@ int TypeManager::Sizeof(const std::string & type) const
 
         return sizeof(void*);
     }
+
+    auto foundE = enums.find(type);
+    if(foundE != enums.end())
+        return (foundE->second.sizeFUCK + 7) / 8;
 
     return 0;
 }
@@ -459,7 +485,6 @@ bool TypeManager::addType(const std::string & owner, Primitive primitive, const 
     t.owner = owner;
     t.name = name;
     t.primitive = primitive;
-    t.sizeFUCK = primitivesizes[primitive] * 8;
     t.pointto = pointto;
     return addType(t);
 }
@@ -584,6 +609,12 @@ int SizeofType(const std::string & type)
     return typeManager.Sizeof(type);
 }
 
+int SizeofType(const Primitive type)
+{
+    SHARED_ACQUIRE(LockTypeManager);
+    return typeManager.Sizeof(type);
+}
+
 bool VisitType(const std::string & type, const std::string & name, Types::TypeManager::Visitor & visitor)
 {
     SHARED_ACQUIRE(LockTypeManager);
@@ -636,31 +667,34 @@ static void loadTypes(const JSON troot, std::vector<Member> & types)
     }
 }
 
-static void loadStructUnions(const JSON suroot, bool isunion, std::vector<StructUnion> & structUnions)
+static void loadStructUnions(const JSON suroot, std::vector<StructUnion> & structUnions)
 {
     if(!suroot)
         return;
     size_t i;
     JSON vali;
-    StructUnion curSu;
-    curSu.isunion = isunion;
     json_array_foreach(suroot, i, vali)
     {
         auto suname = json_string_value(json_object_get(vali, "name"));
         if(!suname || !*suname)
             continue;
+
+        StructUnion curSu;
         curSu.name = suname;
-        curSu.members.clear();
+        curSu.isunion = json_boolean_value(json_object_get(vali, "isUnion"));
+
         auto members = json_object_get(vali, "members");
+
         size_t j;
         JSON valj;
-        Member curMember;
         json_array_foreach(members, j, valj)
         {
             auto type = json_string_value(json_object_get(valj, "type"));
             auto name = json_string_value(json_object_get(valj, "name"));
             if(!type || !*type || !name || !*name)
                 continue;
+
+            Member curMember;
             curMember.type = type;
             curMember.name = name;
 
@@ -679,9 +713,10 @@ static void loadStructUnions(const JSON suroot, bool isunion, std::vector<Struct
                 }
             }
 
-            curSu.members.push_back(curMember);
+            curSu.members.push_back(std::move(curMember));
         }
-        structUnions.push_back(curSu);
+
+        structUnions.push_back(std::move(curSu));
     }
 }
 
@@ -833,9 +868,6 @@ void LoadModel(const std::string & owner, Model & model)
         if(su.name.empty()) //skip error-signalled structs/unions
             continue;
 
-        if(su.name == "_LDT_ENTRY")
-            __debugbreak();
-
         for(auto & member : su.members)
         {
             auto success = typeManager.AddMember(su.name, member.type, member.name, member.arrsize, member.offsetFUCK, member.bitfieldSize);
@@ -871,14 +903,15 @@ bool LoadTypesJson(const std::string & json, const std::string & owner)
     if(root)
     {
         Model model;
+
         loadTypes(json_object_get(root, "types"), model.types);
         loadTypes(json_object_get(root, ArchValue("types32", "types64")), model.types);
-        loadStructUnions(json_object_get(root, "structs"), false, model.structUnions);
-        loadStructUnions(json_object_get(root, ArchValue("structs32", "structs64")), false, model.structUnions);
-        loadStructUnions(json_object_get(root, "unions"), true, model.structUnions);
-        loadStructUnions(json_object_get(root, ArchValue("unions32", "unions64")), true, model.structUnions);
+
+        loadStructUnions(json_object_get(root, "structUnions"), model.structUnions);
+
         loadFunctions(json_object_get(root, "functions"), model.functions);
         loadFunctions(json_object_get(root, ArchValue("functions32", "functions64")), model.functions);
+
         loadEnums(json_object_get(root, "enums"), model.enums);
         loadEnums(json_object_get(root, ArchValue("enums32", "enums64")), model.enums);
 
