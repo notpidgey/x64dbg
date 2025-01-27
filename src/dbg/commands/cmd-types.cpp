@@ -571,9 +571,7 @@ struct PrintVisitor : TypeManager::Visitor
         td.addr = mAddr;
         td.offset = mOffset;
         td.id = type.primitive;
-        td.size = member.bitfieldSize != -1 ? member.bitfieldSize : type.sizeFUCK;
-        if(td.size <= 0)
-            __debugbreak();
+        td.size = member.bitfieldSize != -1 ? member.bitfieldSize : SizeofType(type.primitive) * 8;
         td.callback = cbPrintPrimitive;
         td.userdata = nullptr;
         mNode = GuiTypeAddNode(mParents.empty() ? nullptr : parent().node, &td);
@@ -648,7 +646,7 @@ struct PrintVisitor : TypeManager::Visitor
         parent().offset = mOffset;
         parent().addr = mAddr;
         parent().node = mNode;
-        parent().size = type.sizeFUCK;
+        parent().size = SizeofType(Types::Pointer);
         mOffset = 0;
         mAddr = value;
         mPtrDepth++;
