@@ -330,7 +330,7 @@ void StructWidget::followDumpSlot()
 {
     if(!hasSelection)
         return;
-    DbgCmdExec(QString("dump %1").arg(ToPtrString(selectedType.addr + selectedType.offset)));
+    DbgCmdExec(QString("dump %1").arg(ToPtrString(selectedType.addr + (selectedType.offset / 8))));
 }
 
 void StructWidget::followValueDumpSlot()

@@ -46,16 +46,21 @@ bool TypeManager::AddType(const std::string & owner, const std::string & type, c
     if(foundType != types.end())
     {
         if(foundType->second.primitive == Typedef)
-            addType(owner, foundType->second.primitive, name, type);
+            return addType(owner, foundType->second.primitive, name, type);
         else
-            addType(owner, foundType->second.primitive, name, "");
+            return addType(owner, foundType->second.primitive, name, "");
     }
+
     auto foundStruct = structs.find(type);
     if(foundStruct != structs.end())
         return addType(owner, Typedef, name, type);
 
     auto foundEnum = enums.find(type);
     if(foundEnum != enums.end())
+        return addType(owner, Typedef, name, type);
+
+    auto foundFunction = functions.find(type);
+    if(foundFunction != functions.end())
         return addType(owner, Typedef, name, type);
 
     return false;
@@ -842,6 +847,9 @@ void LoadModel(const std::string & owner, Model & model)
     //Add simple typedefs
     for(auto & type : model.types)
     {
+        if(type.name == "PLIST_ENTRY")
+            __debugbreak();
+
         auto success = typeManager.AddType(owner, type.type, type.name);
         if(!success)
         {
